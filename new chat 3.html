@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Chat Page</title>
+  <!-- Firebase SDKs (compat version for simplicity) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #ece5dd;
+      margin: 0;
+      padding: 0;
+    }
+    /* Sign-In Modal Styles */
+    #signinModal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    #signinModalContent {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      width: 300px;
+      text-align: center;
+    }
+    input[type="text"],
+    input[type="tel"] {
+      width: 90%;
+      padding: 8px;
+      margin: 10px 0;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+      margin: 5px;
+    }
+    /* Chat Container Styles */
+    #chatContainer {
+      width: 90%;
+      max-width: 600px;
+      margin: 20px auto;
+      background-color: #fff;
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.1);
+      display: none; /* Hidden until sign-in */
+    }
+    #messages {
+      min-height: 200px;
+      max-height: 400px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .message {
+      margin: 10px 0;
+      padding: 8px 12px;
+      border-radius: 20px;
+      word-wrap: break-word;
+    }
+    .sent {
+      background-color: #dcf8c6;
+      align-self: flex-end;
+      margin-left: auto;
+    }
+    .received {
+      background-color: #fff;
+      border: 1px solid #ddd;
+      align-self: flex-start;
+    }
+    /* Floating Red Button */
+    #redButton {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      width: 60px;
+      height: 60px;
+      border: none;
+      border-radius: 50%;
+      background-color: red;
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+      display: none; /* Shown after sign-in */
+    }
+    /* Admin Controls */
+    #adminControls {
+      width: 90%;
+      max-width: 600px;
+      margin: 20px auto;
+      text-align: right;
+      display: none; /* Only in Admin Mode */
+    }
+    /* Admin Mode Toggle Button */
+    #adminToggleButton {
+      margin: 10px;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 4px;
+      background-color: #007bff;
+      color: #fff;
+      cursor: pointer;
+      display: none; /* Shown only for non-guest owner */
+    }
+    /* Share Link Modal */
+    #shareLinkModal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1001;
+    }
+    #shareLinkModalContent {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      width: 300px;
+      text-align: center;
+    }
+    #shareLinkModalContent input {
+      width: 90%;
+      padding: 8px;
+      margin: 10px 0;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Sign-In Modal -->
+  <div id="signinModal">
+    <div id="signinModalContent">
+      <h2>Sign In</h2>
+      <input type="tel" id="phoneNumber" placeholder="Phone Number">
+      <input type="text" id="username" placeholder="Username">
+      <br>
+      <button onclick="signIn()">Sign In</button>
+    </div>
+  </div>
+
+  <!-- Chat Container -->
+  <div id="chatContainer">
+    <div id="messages"></div>
+    <div>
+      <input type="text" id="chatInput" placeholder="Type your message..." style="width:80%; padding:10px;">
+      <button onclick="sendMessage()">Send</button>
+    </div>
+    <!-- Admin Mode Toggle (only for owner) -->
+    <button id="adminToggleButton" onclick="toggleAdminMode()">Enter Admin Mode</button>
+  </div>
+
+  <!-- Admin Controls (visible in Admin Mode) -->
+  <div id="adminControls">
+    <button onclick="allDelete()">All Delete</button>
+    <button onclick="generateShareLink()">Generate Share Link</button>
+  </div>
+
+  <!-- Floating Red Button -->
+  <button id="redButton" onclick="redButtonClicked()">!</button>
+
+  <!-- Share Link Modal -->
+  <div id="shareLinkModal">
+    <div id="shareLinkModalContent">
+      <h3>Share Link</h3>
+      <input type="text" id="shareLinkInput" readonly>
+      <br>
+      <button onclick="copyShareLink()">Copy Link</button>
+      <button onclick="closeShareLinkModal()">Close</button>
+    </div>
+  </div>
+  
+  <script>
+    // Firebase configuration (replace with your own Firebase project details)
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      databaseURL: "https://YOUR_PROJECT_ID.firebaseio.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let isAdminMode = false;
+    let isGuest = false; // Flag for guest users
+    let currentUsername = "";
+    
+    // Check URL parameters for role; agar role=guest hai, to guest mode enable ho
+    const urlParams = new URLSearchParams(window.location.search);
+    if(urlParams.get('role') === 'guest'){
+      isGuest = true;
+    }
+
+    function signIn() {
+      const phone = document.getElementById('phoneNumber').value;
+      const username = document.getElementById('username').value.trim();
+      
+      if (phone.trim() === "" || username === "") {
+        alert("Please fill in all details.");
+        return;
+      }
+      
+      currentUsername = username;
+      
+      // Hide sign-in modal and show chat interface
+      document.getElementById('signinModal').style.display = "none";
+      document.getElementById('chatContainer').style.display = "block";
+      document.getElementById('redButton').style.display = "block";
+      
+      if (!isGuest) {
+        document.getElementById('adminToggleButton').style.display = 'block';
+      } else {
+        document.getElementById('adminToggleButton').style.display = 'none';
+        document.getElementById('adminControls').style.display = 'none';
+      }
+      
+      // Listen for new messages from Firebase in real time
+      db.ref("messages").on("child_added", function(snapshot) {
+        const data = snapshot.val();
+        displayMessage(data.username, data.message, data.timestamp);
+      });
+    }
+
+    function displayMessage(username, messageText, timestamp) {
+      const messagesDiv = document.getElementById('messages');
+      const msgDiv = document.createElement('div');
+      msgDiv.className = "message " + (username === currentUsername ? "sent" : "received");
+      const time = new Date(timestamp).toLocaleTimeString();
+      msgDiv.innerHTML = `<strong>${username}</strong> <span style="font-size:0.8em;color:gray;">${time}</span><br>${messageText}`;
+      messagesDiv.appendChild(msgDiv);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('chatInput');
+      const messageText = input.value.trim();
+      if (messageText === "") return;
+      
+      // Push the new message to Firebase Realtime Database
+      db.ref("messages").push({
+        username: currentUsername,
+        message: messageText,
+        timestamp: Date.now()
+      });
+      input.value = "";
+    }
+
+    function toggleAdminMode() {
+      isAdminMode = !isAdminMode;
+      if (isAdminMode) {
+        document.getElementById('adminControls').style.display = 'block';
+        document.getElementById('adminToggleButton').innerText = 'Exit Admin Mode';
+      } else {
+        document.getElementById('adminControls').style.display = 'none';
+        document.getElementById('adminToggleButton').innerText = 'Enter Admin Mode';
+      }
+    }
+
+    function allDelete() {
+      if (confirm("Are you sure you want to delete all messages?")) {
+        // Remove all messages from Firebase
+        db.ref("messages").remove();
+        document.getElementById('messages').innerHTML = "";
+      }
+    }
+
+    function generateShareLink() {
+      // Generate a URL with role=guest so that the recipient sees only the chat interface
+      let url = new URL(window.location.href);
+      url.searchParams.set('role', 'guest');
+      const shareLink = url.toString();
+      
+      document.getElementById('shareLinkInput').value = shareLink;
+      document.getElementById('shareLinkModal').style.display = "flex";
+    }
+
+    function copyShareLink() {
+      const input = document.getElementById('shareLinkInput');
+      input.select();
+      input.setSelectionRange(0, 99999);
+      try {
+        document.execCommand("copy");
+        alert("Link copied to clipboard!");
+      } catch(err) {
+        alert("Unable to copy. Please copy manually.");
+      }
+    }
+
+    function closeShareLinkModal() {
+      document.getElementById('shareLinkModal').style.display = "none";
+    }
+
+    function redButtonClicked() {
+      let count = 0;
+      const totalToggles = 20;
+      const originalColor = 'red';
+      const toggledColor = 'darkred';
+      
+      const interval = setInterval(() => {
+        document.getElementById('redButton').style.backgroundColor = (count % 2 === 0) ? toggledColor : originalColor;
+        count++;
+        if (count >= totalToggles) {
+          clearInterval(interval);
+          document.getElementById('redButton').style.backgroundColor = originalColor;
+        }
+      }, 1000);
+    }
+  </script>
+</body>
+</html>
